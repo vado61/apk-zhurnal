@@ -560,6 +560,7 @@
     </div>
     <div class="empty-state" id="emptyState">Пока нет ни одной записи — заполните форму выше и нажмите «Внести запись в журнал».</div>
     <div class="note">Время убытия можно не указывать сразу — запись уйдёт в журнал со статусом «на объекте», а убытие впишете позже кнопкой «указать» / значком ✎ в таблице. Каждая запись автоматически сохраняется локально в браузере и одновременно отправляется в общую Google-таблицу — статус отправки виден рядом с кнопкой «Внести запись».</div>
+    <div id="pendingSyncBadge" style="display:none;margin-top:8px;font-size:11.5px;font-weight:700;color:#9A6A11;background:#FFF4E0;border-radius:6px;padding:6px 10px;"></div>
     <div style="margin-top:10px;">
       <button type="button" id="wipeLocalBtn" style="font-family:'Montserrat',sans-serif;font-size:11.5px;font-weight:600;color:#96A0AB;background:none;border:1px dashed var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;">Очистить локальные данные на этом устройстве</button>
     </div>
@@ -587,11 +588,59 @@
       msg.textContent = 'Запись сохранена и отправлена в таблицу ✓';
       msg.style.color = 'var(--green)';
     } else {
-      msg.textContent = 'Сохранено локально, но не отправилось в таблицу — проверьте интернет ⚠';
+      msg.textContent = 'Сохранено локально, отправим автоматически, когда появится интернет ⚠';
       msg.style.color = 'var(--danger)';
     }
     msg.classList.add('show');
     setTimeout(() => msg.classList.remove('show'), 2600);
+  }
+
+  // --- Очередь неотправленных запросов: если POST не прошёл (нет сети),
+  // запрос сохраняется и досылается автоматически, как только связь появится.
+  let syncQueue = [];
+
+  async function saveQueue(){
+    try{ await storage.set(STORAGE_KEYS.queue, JSON.stringify(syncQueue)); }catch(e){}
+  }
+  async function loadQueue(){
+    try{
+      const q = await storage.get(STORAGE_KEYS.queue);
+      if(q) syncQueue = JSON.parse(q);
+    }catch(e){}
+  }
+  function updatePendingBadge(){
+    const el = $('pendingSyncBadge');
+    if(!el) return;
+    if(syncQueue.length){
+      el.style.display = 'inline-block';
+      el.textContent = `Ожидают отправки в таблицу: ${syncQueue.length} — досылаем автоматически при появлении сети`;
+    } else {
+      el.style.display = 'none';
+    }
+  }
+  async function queueAndSend(payload){
+    const res = await sendToSheet(payload);
+    if(res && res.status === 'ok'){
+      flashSyncStatus(true);
+    } else {
+      syncQueue.push(payload);
+      await saveQueue();
+      flashSyncStatus(false);
+      updatePendingBadge();
+    }
+  }
+  // Досылает накопившуюся очередь по порядку. Останавливается на первой неудаче,
+  // чтобы не нарушить порядок (например, обновление убытия должно уйти после самой записи).
+  async function flushSyncQueue(){
+    if(!syncQueue.length) return;
+    let i = 0;
+    for(; i < syncQueue.length; i++){
+      const res = await sendToSheet(syncQueue[i]);
+      if(!(res && res.status === 'ok')) break;
+    }
+    syncQueue = syncQueue.slice(i);
+    await saveQueue();
+    updatePendingBadge();
   }
 
   function mergeRemoteRows(remoteRows){
@@ -634,7 +683,7 @@
 
   function makeId(){ return Date.now() + '-' + Math.random().toString(36).slice(2,7); }
 
-  const STORAGE_KEYS = { rows:'apk-journal-rows', shifts:'apk-journal-shifts', state:'apk-journal-state', lastDay:'apk-journal-last-day' };
+  const STORAGE_KEYS = { rows:'apk-journal-rows', shifts:'apk-journal-shifts', state:'apk-journal-state', lastDay:'apk-journal-last-day', queue:'apk-journal-queue' };
 
   // Работает и внутри превью Claude (window.storage), и после публикации
   // страницы отдельным файлом (тогда используется обычный localStorage браузера).
@@ -772,8 +821,7 @@
       editingDepartureId = null;
       renderTable();
       saveAll();
-      sendToSheet({ type: 'entry_update_departure', id: id, departTime: val })
-        .then(res => flashSyncStatus(res.status === 'ok'));
+      queueAndSend({ type: 'entry_update_departure', id: id, departTime: val });
     }
   });
 
@@ -877,8 +925,7 @@
     saveAll();
     $('arriveTime').focus();
 
-    sendToSheet({ type: 'entry_new', ...entry })
-      .then(res => flashSyncStatus(res.status === 'ok'));
+    queueAndSend({ type: 'entry_new', ...entry });
   });
 
   $('shiftToggleBtn').addEventListener('click', () => {
@@ -907,8 +954,7 @@
       btn.textContent = 'Закончить смену ■';
       btn.classList.add('is-active');
       clearEntryFields();
-      sendToSheet({ type: 'shift_start', ...shift })
-        .then(res => flashSyncStatus(res.status === 'ok'));
+      queueAndSend({ type: 'shift_start', ...shift });
     } else {
       // Закончить смену
       if(!confirm('Закончить смену? Ввод новых записей будет заблокирован до начала следующей смены. Уже внесённые записи сохранятся в таблице.')) return;
@@ -918,8 +964,7 @@
       btn.textContent = 'Начать смену ▶';
       btn.classList.remove('is-active');
       $('inspectorName').value = '';
-      sendToSheet({ type: 'shift_end', id: currentShift.id, end: currentShift.end })
-        .then(res => flashSyncStatus(res.status === 'ok'));
+      queueAndSend({ type: 'shift_end', id: currentShift.id, end: currentShift.end });
     }
     renderShiftHistory();
     updateFormLockUI();
@@ -929,6 +974,8 @@
   async function init(){
     const realToday = todayISO();
     await loadAll();
+    await loadQueue();
+    updatePendingBadge();
 
     // Проверяем, не сменился ли календарный день с последнего использования на этом устройстве.
     // Если сменился — полностью очищаем локальную историю: новый день начинается "с чистого листа".
@@ -970,6 +1017,12 @@
     $('objectName').addEventListener('change', fetchRemoteEntries);
 
     fetchRemoteEntries();
+    flushSyncQueue();
+
+    // Досылаем очередь, как только браузер сообщает о появлении сети...
+    window.addEventListener('online', flushSyncQueue);
+    // ...и на всякий случай ещё и по таймеру — событие "online" не всегда срабатывает надёжно.
+    setInterval(flushSyncQueue, 30 * 1000);
 
     // Лёгкая подстраховка: если вкладка осталась открытой всю ночь без перезагрузки,
     // всё равно отследим наступление нового дня и очистим историю.

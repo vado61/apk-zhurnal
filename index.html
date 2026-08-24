@@ -454,7 +454,7 @@
     <h2>Данные по прибывшему транспорту</h2>
     <div class="grid">
       <div class="field">
-        <label for="orderNumber">№ по порядку <span class="hint">за сутки, можно поправить</span></label>
+        <label for="orderNumber">№ по порядку <span class="hint">вводится вручную</span></label>
         <input type="number" id="orderNumber" min="1" step="1">
       </div>
       <div class="field">
@@ -556,6 +556,9 @@
     </div>
     <div class="empty-state" id="emptyState">Пока нет ни одной записи — заполните форму выше и нажмите «Внести запись в журнал».</div>
     <div class="note">Время убытия можно не указывать сразу — запись уйдёт в журнал со статусом «на объекте», а убытие впишете позже кнопкой «указать» / значком ✎ в таблице. Каждая запись автоматически сохраняется локально в браузере и одновременно отправляется в общую Google-таблицу — статус отправки виден рядом с кнопкой «Внести запись».</div>
+    <div style="margin-top:10px;">
+      <button type="button" id="wipeLocalBtn" style="font-family:'Montserrat',sans-serif;font-size:11.5px;font-weight:600;color:#96A0AB;background:none;border:1px dashed var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;">Очистить локальные данные на этом устройстве</button>
+    </div>
   </div>
 
 </div>
@@ -618,7 +621,7 @@
     }
   }
 
-  const entryFieldIds = ['arriveTime','carBrand','carPlate','driverName','ttnNumber','ttnDate','cargoType','cargoQty','cargoUnit','cargoReceiver','departTime'];
+  const entryFieldIds = ['orderNumber','arriveTime','carBrand','carPlate','driverName','ttnNumber','ttnDate','cargoType','cargoQty','cargoUnit','cargoReceiver','departTime'];
 
   let rows = [];
   let shifts = [];      // {id, inspector, object, date, start, end}
@@ -627,7 +630,7 @@
 
   function makeId(){ return Date.now() + '-' + Math.random().toString(36).slice(2,7); }
 
-  const STORAGE_KEYS = { rows:'apk-journal-rows', shifts:'apk-journal-shifts', state:'apk-journal-state' };
+  const STORAGE_KEYS = { rows:'apk-journal-rows', shifts:'apk-journal-shifts', state:'apk-journal-state', lastDay:'apk-journal-last-day' };
 
   // Работает и внутри превью Claude (window.storage), и после публикации
   // страницы отдельным файлом (тогда используется обычный localStorage браузера).
@@ -700,15 +703,8 @@
   }
   function formatTime(t){ return t || '—'; }
 
-  function nextOrderForToday(){
-    const currentDate = $('logDate').value;
-    const sameDayCount = rows.filter(r => r.logDate === currentDate).length;
-    return sameDayCount + 1;
-  }
-
   function clearEntryFields(){
     entryFieldIds.forEach(id => { $(id).value = ''; });
-    $('orderNumber').value = nextOrderForToday();
   }
 
   function departCellHtml(r){
@@ -894,29 +890,88 @@
   });
 
   async function init(){
-    $('logDate').value = todayISO();
+    const realToday = todayISO();
     await loadAll();
+
+    // Проверяем, не сменился ли календарный день с последнего использования на этом устройстве.
+    // Если сменился — полностью очищаем локальную историю: новый день начинается "с чистого листа".
+    let storedLastDay = null;
+    try{
+      const r = await storage.get(STORAGE_KEYS.lastDay);
+      if(r) storedLastDay = r.value;
+    }catch(e){}
+
+    if(storedLastDay !== realToday){
+      rows = [];
+      shifts = [];
+      shiftActive = false;
+      editingDepartureId = null;
+      $('inspectorName').value = '';
+    }
+    $('logDate').value = realToday;
+    try{ await storage.set(STORAGE_KEYS.lastDay, realToday); }catch(e){}
+
     renderTable();
     clearEntryFields();
     if(shiftActive && shifts.length){
       $('shiftToggleBtn').textContent = 'Закончить смену ■';
       $('shiftToggleBtn').classList.add('is-active');
+    } else {
+      $('shiftToggleBtn').textContent = 'Начать смену ▶';
+      $('shiftToggleBtn').classList.remove('is-active');
     }
     updateFormLockUI();
     renderShiftHistory();
+    saveAll();
 
     ['objectName','logDate','inspectorName'].forEach(id => {
       $(id).addEventListener('change', saveAll);
     });
     $('logDate').addEventListener('change', () => {
-      if(!shiftActive) $('orderNumber').value = nextOrderForToday();
       fetchRemoteEntries();
     });
     $('objectName').addEventListener('change', fetchRemoteEntries);
 
     fetchRemoteEntries();
+
+    // Лёгкая подстраховка: если вкладка осталась открытой всю ночь без перезагрузки,
+    // всё равно отследим наступление нового дня и очистим историю.
+    setInterval(async () => {
+      const nowToday = todayISO();
+      if(nowToday !== $('logDate').value && !shiftActive){
+        rows = [];
+        shifts = [];
+        editingDepartureId = null;
+        $('inspectorName').value = '';
+        $('logDate').value = nowToday;
+        try{ await storage.set(STORAGE_KEYS.lastDay, nowToday); }catch(e){}
+        renderTable();
+        clearEntryFields();
+        renderShiftHistory();
+        updateFormLockUI();
+        saveAll();
+      }
+    }, 5 * 60 * 1000);
   }
   init();
+
+  $('wipeLocalBtn').addEventListener('click', async () => {
+    if(!confirm('Очистить все данные на этом устройстве? Записи и смены, сохранённые локально в этом браузере, будут удалены безвозвратно. Данные, уже отправленные в Google-таблицу, не пострадают.')) return;
+    rows = [];
+    shifts = [];
+    shiftActive = false;
+    editingDepartureId = null;
+    try{ await storage.set(STORAGE_KEYS.rows, JSON.stringify([])); }catch(e){}
+    try{ await storage.set(STORAGE_KEYS.shifts, JSON.stringify([])); }catch(e){}
+    $('inspectorName').value = '';
+    $('shiftToggleBtn').textContent = 'Начать смену ▶';
+    $('shiftToggleBtn').classList.remove('is-active');
+    renderTable();
+    renderShiftHistory();
+    updateFormLockUI();
+    saveAll();
+    alert('Готово — локальные данные на этом устройстве очищены.');
+  });
 </script>
 </body>
 </html>

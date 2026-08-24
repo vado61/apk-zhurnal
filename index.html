@@ -229,6 +229,10 @@
     color:#6B7480;
     font-weight:700;
   }
+  .field input.field-error{
+    border-color:var(--danger);
+    background:#FCEEED;
+  }
 
   .actions{
     margin-top:22px;
@@ -455,45 +459,45 @@
     <div class="grid">
       <div class="field">
         <label for="orderNumber">№ по порядку <span class="hint">вводится вручную</span></label>
-        <input type="number" id="orderNumber" min="1" step="1">
+        <input type="number" id="orderNumber" min="1" step="1" required>
       </div>
       <div class="field">
         <label for="arriveTime">Время прибытия</label>
-        <input type="time" id="arriveTime">
+        <input type="time" id="arriveTime" required>
       </div>
       <div class="field">
         <label for="carBrand">Марка машины</label>
-        <input type="text" id="carBrand" placeholder="КАМАЗ">
+        <input type="text" id="carBrand" placeholder="КАМАЗ" required>
       </div>
 
       <div class="field">
         <label for="carPlate">Гос. номер машины</label>
-        <input type="text" id="carPlate" placeholder="А123ВС 77">
+        <input type="text" id="carPlate" placeholder="А123ВС 77" required>
       </div>
       <div class="field">
         <label for="driverName">Водитель (ФИО, инициалы)</label>
-        <input type="text" id="driverName" placeholder="Петров П.П.">
+        <input type="text" id="driverName" placeholder="Петров П.П." required>
       </div>
       <div class="field">
         <label for="ttnNumber">№ ТТН <span class="hint">если без номера — «б/н»</span></label>
-        <input type="text" id="ttnNumber" placeholder="12345 или б/н">
+        <input type="text" id="ttnNumber" placeholder="12345 или б/н" required>
       </div>
 
       <div class="field">
         <label for="ttnDate">Дата ТТН</label>
-        <input type="date" id="ttnDate">
+        <input type="date" id="ttnDate" required>
       </div>
       <div class="field">
         <label for="cargoType">Характер груза <span class="hint">как в ТТН</span></label>
-        <input type="text" id="cargoType" placeholder="Комбикорм">
+        <input type="text" id="cargoType" placeholder="Комбикорм" required>
       </div>
       <div class="field">
         <label for="cargoQty">Количество груза</label>
-        <input type="number" id="cargoQty" step="0.01" min="0" placeholder="20">
+        <input type="number" id="cargoQty" step="0.01" min="0" placeholder="20" required>
       </div>
       <div class="field">
         <label for="cargoUnit">Ед. измерения</label>
-        <input type="text" id="cargoUnit" list="unitList" placeholder="т">
+        <input type="text" id="cargoUnit" list="unitList" placeholder="т" required>
         <datalist id="unitList">
           <option value="т">
           <option value="кг">
@@ -506,7 +510,7 @@
 
       <div class="field">
         <label for="cargoReceiver">Получатель груза</label>
-        <input type="text" id="cargoReceiver" placeholder="Склад №1">
+        <input type="text" id="cargoReceiver" placeholder="Склад №1" required>
       </div>
       <div class="field">
         <label for="departTime">Время убытия</label>
@@ -704,7 +708,7 @@
   function formatTime(t){ return t || '—'; }
 
   function clearEntryFields(){
-    entryFieldIds.forEach(id => { $(id).value = ''; });
+    entryFieldIds.forEach(id => { $(id).value = ''; $(id).classList.remove('field-error'); });
   }
 
   function departCellHtml(r){
@@ -814,8 +818,41 @@
     }
   }
 
+  const REQUIRED_ENTRY_IDS = ['orderNumber','arriveTime','carBrand','carPlate','driverName','ttnNumber','ttnDate','cargoType','cargoQty','cargoUnit','cargoReceiver'];
+
+  function validateEntryFields(){
+    let firstInvalid = null;
+    REQUIRED_ENTRY_IDS.forEach(id => {
+      const el = $(id);
+      const empty = !el.value.trim();
+      el.classList.toggle('field-error', empty);
+      if(empty && !firstInvalid) firstInvalid = el;
+    });
+    return firstInvalid;
+  }
+
+  ['input','change'].forEach(evt => {
+    REQUIRED_ENTRY_IDS.forEach(id => {
+      $(id).addEventListener(evt, () => {
+        if($(id).value.trim()) $(id).classList.remove('field-error');
+      });
+    });
+  });
+
   $('submitBtn').addEventListener('click', () => {
     if(!shiftActive) return;
+
+    const firstInvalid = validateEntryFields();
+    if(firstInvalid){
+      firstInvalid.focus();
+      const msg = $('statusMsg');
+      msg.textContent = 'Заполните все поля (кроме времени убытия) перед отправкой ⚠';
+      msg.style.color = 'var(--danger)';
+      msg.classList.add('show');
+      setTimeout(() => msg.classList.remove('show'), 2600);
+      return;
+    }
+
     const entry = {
       id: makeId(),
       order: $('orderNumber').value,

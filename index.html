@@ -76,6 +76,27 @@
   }
   .shift-status.active .dot{background:#6FCF7C;}
   .shift-status.active{color:#DDEFDE;}
+  .conn-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    font-size:11.5px;
+    font-weight:700;
+    padding:4px 10px;
+    border-radius:20px;
+    letter-spacing:.02em;
+    background:rgba(255,255,255,0.12);
+    color:rgba(255,255,255,0.85);
+  }
+  .conn-badge .dot{
+    width:7px;height:7px;border-radius:50%;
+    background:#8A94A0;
+    display:inline-block;
+  }
+  .conn-badge.online{background:rgba(111,207,124,0.18);color:#DDEFDE;}
+  .conn-badge.online .dot{background:#6FCF7C;}
+  .conn-badge.offline{background:rgba(176,65,62,0.22);color:#FBD9D8;}
+  .conn-badge.offline .dot{background:var(--danger);}
   .brand-row{
     display:flex;
     align-items:center;
@@ -499,8 +520,13 @@
         <input type="text" id="inspectorName" placeholder="Иванов И.И.">
       </div>
     </div>
-    <div class="shift-status" id="shiftStatus" style="margin-top:16px;">
-      <span class="dot"></span><span id="shiftStatusText">Смена не начата — заполните ФИО и нажмите «Начать смену»</span>
+    <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+      <div class="shift-status" id="shiftStatus">
+        <span class="dot"></span><span id="shiftStatusText">Смена не начата — заполните ФИО и нажмите «Начать смену»</span>
+      </div>
+      <div class="conn-badge" id="connBadge">
+        <span class="dot"></span><span id="connBadgeText">Проверка связи…</span>
+      </div>
     </div>
   </div>
 
@@ -570,6 +596,7 @@
           <option value="кг">
           <option value="шт">
           <option value="м³">
+          <option value="м²">
           <option value="компл.">
           <option value="л">
         </datalist>
@@ -686,6 +713,15 @@
     } else {
       el.style.display = 'none';
     }
+  }
+  function updateConnBadge(){
+    const badge = $('connBadge');
+    const text = $('connBadgeText');
+    if(!badge || !text) return;
+    const online = navigator.onLine;
+    badge.classList.toggle('online', online);
+    badge.classList.toggle('offline', !online);
+    text.textContent = online ? 'Связь есть' : 'Нет связи — данные сохранятся локально';
   }
   async function queueAndSend(payload){
     const res = await sendToSheet(payload);
@@ -962,7 +998,8 @@
       $('logDate').disabled = true;
       $('inspectorName').disabled = true;
       statusEl.classList.add('active');
-      statusText.textContent = `Смена активна — ${$('inspectorName').value}, начало ${shifts[shifts.length-1].start}`;
+      const lastShift = shifts[shifts.length - 1];
+      statusText.textContent = `Смена активна — ${$('inspectorName').value}, начало ${lastShift ? lastShift.start : '—'}`;
     } else {
       entryCard.classList.add('is-locked');
       lockNote.classList.add('show');
@@ -1094,59 +1131,15 @@
     const realToday = todayISO();
     await loadAll();
     await loadQueue();
-    updatePendingBadge();
     await loadHistory();
-    renderHistoryDatalists();
 
-    // Проверяем, не сменился ли календарный день с последнего использования на этом устройстве.
-    // Если сменился — полностью очищаем локальную историю: новый день начинается "с чистого листа".
-    let storedLastDay = null;
-    try{
-      const r = await storage.get(STORAGE_KEYS.lastDay);
-      if(r) storedLastDay = r.value;
-    }catch(e){}
-
-    if(storedLastDay !== realToday){
-      rows = [];
-      shifts = [];
-      shiftActive = false;
-      editingDepartureId = null;
-      $('inspectorName').value = '';
-    }
-    $('logDate').value = realToday;
-    try{ await storage.set(STORAGE_KEYS.lastDay, realToday); }catch(e){}
-
-    renderTable();
-    clearEntryFields();
-    if(shiftActive && shifts.length){
-      $('shiftToggleBtn').textContent = 'Закончить смену ■';
-      $('shiftToggleBtn').classList.add('is-active');
-    } else {
-      $('shiftToggleBtn').textContent = 'Начать смену ▶';
-      $('shiftToggleBtn').classList.remove('is-active');
-    }
-    updateFormLockUI();
-    renderShiftHistory();
-    saveAll();
-
-    ['objectName','logDate','inspectorName'].forEach(id => {
-      $(id).addEventListener('change', saveAll);
-    });
-    $('logDate').addEventListener('change', () => {
-      fetchRemoteEntries();
-    });
-    $('objectName').addEventListener('change', fetchRemoteEntries);
-
-    fetchRemoteEntries();
-    flushSyncQueue();
-
-    // Досылаем очередь, как только браузер сообщает о появлении сети...
-    window.addEventListener('online', flushSyncQueue);
-    // ...и на всякий случай ещё и по таймеру — событие "online" не всегда срабатывает надёжно.
-    setInterval(flushSyncQueue, 30 * 1000);
-
-    // Лёгкая подстраховка: если вкладка осталась открытой всю ночь без перезагрузки,
-    // всё равно отследим наступление нового дня и очистим историю.
+    // Сначала гарантированно подключаем всю "автоматику" — очередь на отправку,
+    // слушатели сети, дневной таймер. Это должно работать ВСЕГДА, даже если
+    // что-то ниже (отрисовка интерфейса) неожиданно упадёт из-за рассинхронизации
+    // локальных данных — иначе телефон может тихо перестать досылать записи.
+    window.addEventListener('online', () => { updateConnBadge(); flushSyncQueue(); });
+    window.addEventListener('offline', updateConnBadge);
+    setInterval(() => { updateConnBadge(); flushSyncQueue(); }, 30 * 1000);
     setInterval(async () => {
       const nowToday = todayISO();
       if(nowToday !== $('logDate').value && !shiftActive){
@@ -1156,14 +1149,66 @@
         $('inspectorName').value = '';
         $('logDate').value = nowToday;
         try{ await storage.set(STORAGE_KEYS.lastDay, nowToday); }catch(e){}
-        renderTable();
-        clearEntryFields();
-        renderShiftHistory();
-        updateFormLockUI();
+        safeRenderAll();
         saveAll();
       }
     }, 5 * 60 * 1000);
+    updatePendingBadge();
+    updateConnBadge();
+    flushSyncQueue();
+
+    // Дальше — отрисовка интерфейса. Оборачиваем в try/catch: даже если тут
+    // что-то пойдёт не так, автоматика выше уже подключена и продолжит работать.
+    try{
+      renderHistoryDatalists();
+
+      // Проверяем, не сменился ли календарный день с последнего использования на этом устройстве.
+      let storedLastDay = null;
+      try{
+        const r = await storage.get(STORAGE_KEYS.lastDay);
+        if(r) storedLastDay = r.value;
+      }catch(e){}
+
+      if(storedLastDay !== realToday){
+        rows = [];
+        shifts = [];
+        shiftActive = false;
+        editingDepartureId = null;
+        $('inspectorName').value = '';
+      }
+      $('logDate').value = realToday;
+      try{ await storage.set(STORAGE_KEYS.lastDay, realToday); }catch(e){}
+
+      safeRenderAll();
+
+      ['objectName','logDate','inspectorName'].forEach(id => {
+        $(id).addEventListener('change', saveAll);
+      });
+      $('logDate').addEventListener('change', () => {
+        fetchRemoteEntries();
+      });
+      $('objectName').addEventListener('change', fetchRemoteEntries);
+
+      fetchRemoteEntries();
+    }catch(err){
+      // Не даём сбою в отрисовке остановить работу автоматики выше.
+      console.error('Ошибка при инициализации интерфейса:', err);
+    }
   }
+
+  // Безопасно (без падений) обновляет весь видимый интерфейс на основе текущего
+  // состояния shiftActive/shifts/rows — используется и в init(), и в дневном таймере.
+  function safeRenderAll(){
+    renderTable();
+    clearEntryFields();
+    const hasShift = shiftActive && shifts.length > 0;
+    $('shiftToggleBtn').textContent = hasShift ? 'Закончить смену ■' : 'Начать смену ▶';
+    $('shiftToggleBtn').classList.toggle('is-active', hasShift);
+    updateFormLockUI();
+    renderShiftHistory();
+    saveAll();
+  }
+
   init();
 
   $('wipeLocalBtn').addEventListener('click', async () => {

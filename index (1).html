@@ -1233,5 +1233,14 @@
     alert('Готово — локальные данные на этом устройстве очищены.');
   });
 </script>
+<script>
+  // Регистрируем service worker — без него Chrome на Android не предложит
+  // "Установить приложение" и не даст нормальную иконку с манифеста.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+</script>
 </body>
 </html>

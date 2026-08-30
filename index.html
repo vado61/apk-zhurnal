@@ -1108,7 +1108,7 @@
       btn.textContent = 'Закончить смену ■';
       btn.classList.add('is-active');
       clearEntryFields();
-      queueAndSend({ type: 'shift_start', ...shift });
+      queueAndSend({ action: 'shift_start', data: shift });`
     } else {
       // Закончить смену
       if(!confirm('Закончить смену? Ввод новых записей будет заблокирован до начала следующей смены. Уже внесённые записи сохранятся в таблице.')) return;

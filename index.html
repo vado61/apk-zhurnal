@@ -1076,7 +1076,7 @@
     saveAll();
     $('arriveTime').focus();
 
-    queueAndSend({ type: 'entry_new', ...entry });
+    queueAndSend({ action: 'add_entry', data: { object: entry.object, arrivalTime: entry.arriveTime, carBrand: entry.carBrand, carNumber: entry.carPlate, driver: entry.driverName, ttnNumber: entry.ttnNumber, ttnDate: entry.ttnDate, cargoType: entry.cargoType, cargoQty: entry.cargoQty, cargoUnit: entry.cargoUnit, receiver: entry.cargoReceiver, inspector: entry.inspector } });
   });
 
   $('shiftToggleBtn').addEventListener('click', () => {

@@ -1120,7 +1120,7 @@
       btn.textContent = 'Начать смену ▶';
       btn.classList.remove('is-active');
       $('inspectorName').value = '';
-      queueAndSend({ type: 'shift_end', id: currentShift.id, end: currentShift.end });
+      queueAndSend({ action: 'shift_end', data: { id: currentShift.id, end: currentShift.end } });
     }
     renderShiftHistory();
     updateFormLockUI();

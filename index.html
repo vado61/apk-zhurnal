@@ -965,7 +965,7 @@
       editingDepartureId = null;
       renderTable();
       saveAll();
-      queueAndSend({ type: 'entry_update_departure', id: id, departTime: val });
+      queueAndSend({ action: 'update_departure', data: { carNumber: row ? row.carPlate : '', departureTime: val } });
     }
   });
 

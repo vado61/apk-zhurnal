@@ -666,7 +666,7 @@
 <script>
   const $ = id => document.getElementById(id);
 
-  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxmIz0UFjx37g-rZPCaIBAjlJQGNzbavtyvYvamm7ZX_zm1s06qyGKA-bSqfSwPuoV-/exec';
+  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwb4bAzlK4B2S0diuH7JADgvHxO7anHBOS2FYj9zitaHYsBlOx7GnuBK1-5mnknzJHSxw/exec';
 
   function sendToSheet(payload){
     // text/plain обходит CORS-preflight, который Apps Script не умеет обрабатывать
@@ -1076,7 +1076,7 @@
     saveAll();
     $('arriveTime').focus();
 
-    queueAndSend({ action: 'add_entry', data: { object: entry.object, arrivalTime: entry.arriveTime, carBrand: entry.carBrand, carNumber: entry.carPlate, driver: entry.driverName, ttnNumber: entry.ttnNumber, ttnDate: entry.ttnDate, cargoType: entry.cargoType, cargoQty: entry.cargoQty, cargoUnit: entry.cargoUnit, receiver: entry.cargoReceiver, inspector: entry.inspector } });
+    queueAndSend({ action: 'add_entry', data: { id: entry.id, order: entry.order, logDate: entry.logDate, object: entry.object, arrivalTime: entry.arriveTime, carBrand: entry.carBrand, carNumber: entry.carPlate, driver: entry.driverName, ttnNumber: entry.ttnNumber, ttnDate: entry.ttnDate, cargoType: entry.cargoType, cargoQty: entry.cargoQty, cargoUnit: entry.cargoUnit, receiver: entry.cargoReceiver, inspector: entry.inspector } });
   });
 
   $('shiftToggleBtn').addEventListener('click', () => {
